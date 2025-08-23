@@ -1,34 +1,31 @@
-import asyncio
-from pydub import AudioSegment
-from pydub.playback import play
-import io
+import torch
+from transformers import MarianConfig, MarianMTModel, MarianTokenizer
+import os
 
-async def main():
-    # List available voices
-    voices = await edge_tts.list_voices()
-    tamil_voices = [v["ShortName"] for v in voices if "ta-" in v["ShortName"]]
-    print("Available Tamil voices:", tamil_voices)
+model_path = "/Users/srivatsansureshbabu/Desktop/LangIQ/marianmt_quantized"
+state_dict_path = "/Users/srivatsansureshbabu/Desktop/LangIQ/marianmt_quantized/quantized_marianmt_state_dict.pth"
 
-    if not tamil_voices:
-        print("❌ No Tamil voices found.")
-        return
+# 1️⃣ Load tokenizer
+tokenizer = MarianTokenizer.from_pretrained(model_path)
 
-    voice = tamil_voices[0]
-    print(f"Using voice: {voice}")
+# 2️⃣ Load architecture only
+config = MarianConfig.from_pretrained(model_path, download=False)
+model = MarianMTModel(config)
 
-    # Generate speech as a stream
-    text = "வணக்கம், நீங்கள் எப்படி இருக்கிறீர்கள்?"
-    tts = edge_tts.Communicate(text, voice)
+# 3️⃣ Load your saved state dict
+state_dict = torch.load(state_dict_path, map_location="cpu")
+# Remove 'model.' prefix if needed
+state_dict = {k.replace("model.", ""): v for k, v in state_dict.items()}
+model.load_state_dict(state_dict)
+model.eval()
 
-    # Collect audio chunks and play immediately
-    audio_bytes = b""
-    async for chunk in tts.stream():
-        if chunk["type"] == "audio":
-            audio_bytes += chunk["data"]
+# 4️⃣ Test translation
+english_text = "hello"
+input_text = f">>tam<< {english_text}"  # prepend target language token
+inputs = tokenizer(input_text, return_tensors="pt")
 
-    # Convert raw audio to playable format
-    audio = AudioSegment.from_file(io.BytesIO(audio_bytes), format="mp3")
-    play(audio)
+with torch.no_grad():
+    translated = model.generate(**inputs)
 
-# Run async
-asyncio.run(main())
+tamil_text = tokenizer.decode(translated[0], skip_special_tokens=True)
+print("Tamil:", tamil_text)
